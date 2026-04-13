@@ -96,25 +96,30 @@ void led_red_task(void* p) {
     gpio_put(LED_PIN_R, 0);
 
     bool enabled = false;
+    bool led_state = false;
     led_cmd_t cmd;
 
     while (true) {
-        if (xQueueReceive(xQueueLedRedCmd, &cmd, 0) == pdTRUE) {
-            enabled = cmd.enabled;
-        }
-
         if (!enabled) {
             gpio_put(LED_PIN_R, 0);
-            if (xQueueReceive(xQueueLedRedCmd, &cmd, pdMS_TO_TICKS(20)) == pdTRUE) {
+            led_state = false;
+            if (xQueueReceive(xQueueLedRedCmd, &cmd, portMAX_DELAY) == pdTRUE) {
                 enabled = cmd.enabled;
             }
             continue;
         }
 
-        gpio_put(LED_PIN_R, 1);
-        vTaskDelay(pdMS_TO_TICKS(100));
-        gpio_put(LED_PIN_R, 0);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (xQueueReceive(xQueueLedRedCmd, &cmd, pdMS_TO_TICKS(100)) == pdTRUE) {
+            enabled = cmd.enabled;
+            if (!enabled) {
+                gpio_put(LED_PIN_R, 0);
+                led_state = false;
+                continue;
+            }
+        }
+
+        led_state = !led_state;
+        gpio_put(LED_PIN_R, led_state);
     }
 }
 
@@ -124,25 +129,30 @@ void led_yellow_task(void* p) {
     gpio_put(LED_PIN_Y, 0);
 
     bool enabled = false;
+    bool led_state = false;
     led_cmd_t cmd;
 
     while (true) {
-        if (xQueueReceive(xQueueLedYellowCmd, &cmd, 0) == pdTRUE) {
-            enabled = cmd.enabled;
-        }
-
         if (!enabled) {
             gpio_put(LED_PIN_Y, 0);
-            if (xQueueReceive(xQueueLedYellowCmd, &cmd, pdMS_TO_TICKS(20)) == pdTRUE) {
+            led_state = false;
+            if (xQueueReceive(xQueueLedYellowCmd, &cmd, portMAX_DELAY) == pdTRUE) {
                 enabled = cmd.enabled;
             }
             continue;
         }
 
-        gpio_put(LED_PIN_Y, 1);
-        vTaskDelay(pdMS_TO_TICKS(100));
-        gpio_put(LED_PIN_Y, 0);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (xQueueReceive(xQueueLedYellowCmd, &cmd, pdMS_TO_TICKS(100)) == pdTRUE) {
+            enabled = cmd.enabled;
+            if (!enabled) {
+                gpio_put(LED_PIN_Y, 0);
+                led_state = false;
+                continue;
+            }
+        }
+
+        led_state = !led_state;
+        gpio_put(LED_PIN_Y, led_state);
     }
 }
 
