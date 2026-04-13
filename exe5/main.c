@@ -12,50 +12,42 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+
 #define BTN_PIN_R 28
 #define BTN_PIN_Y 21
 #define LED_PIN_R 5
 #define LED_PIN_Y 10
+#define BUTTON_RED 0
+#define BUTTON_YELLOW 1
 
-typedef enum {
-    BUTTON_RED = 0,
-    BUTTON_YELLOW
-} button_id_t;
-
-typedef struct {
-    button_id_t button;
-} button_event_t;
-
-typedef struct {
-    bool enabled;
-} led_cmd_t;
-
-QueueHandle_t xQueueButtonEvents;
-QueueHandle_t xQueueLedRedCmd;
-QueueHandle_t xQueueLedYellowCmd;
+QueueHandle_t xQueueBtn;
+SemaphoreHandle_t xSemaphoreLedR;
+SemaphoreHandle_t xSemaphoreLedY;
 
 static void btn_callback(uint gpio, uint32_t events) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    button_event_t event;
+    uint8_t button_id;
 
     if ((events & GPIO_IRQ_EDGE_FALL) == 0) {
         return;
     }
 
     if (gpio == BTN_PIN_R) {
-        event.button = BUTTON_RED;
-        xQueueSendFromISR(xQueueButtonEvents, &event, &xHigherPriorityTaskWoken);
+        button_id = BUTTON_RED;
+        xQueueSendFromISR(xQueueBtn, &button_id, &xHigherPriorityTaskWoken);
     }
 
     if (gpio == BTN_PIN_Y) {
-        event.button = BUTTON_YELLOW;
-        xQueueSendFromISR(xQueueButtonEvents, &event, &xHigherPriorityTaskWoken);
+        button_id = BUTTON_YELLOW;
+        xQueueSendFromISR(xQueueBtn, &button_id, &xHigherPriorityTaskWoken);
     }
 
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 void button_task(void* p) {
+    (void) p;
+
     gpio_init(BTN_PIN_R);
     gpio_set_dir(BTN_PIN_R, GPIO_IN);
     gpio_pull_up(BTN_PIN_R);
@@ -68,54 +60,51 @@ void button_task(void* p) {
                                        &btn_callback);
     gpio_set_irq_enabled(BTN_PIN_Y, GPIO_IRQ_EDGE_FALL, true);
 
-    bool red_enabled = false;
-    bool yellow_enabled = false;
-    button_event_t event;
-    led_cmd_t cmd;
+    uint8_t button_id;
 
     while (true) {
-        if (xQueueReceive(xQueueButtonEvents, &event, portMAX_DELAY) == pdTRUE) {
-            if (event.button == BUTTON_RED) {
-                red_enabled = !red_enabled;
-                cmd.enabled = red_enabled;
-                xQueueOverwrite(xQueueLedRedCmd, &cmd);
+        if (xQueueReceive(xQueueBtn, &button_id, portMAX_DELAY) == pdTRUE) {
+            if (button_id == BUTTON_RED) {
+                xSemaphoreGive(xSemaphoreLedR);
             }
 
-            if (event.button == BUTTON_YELLOW) {
-                yellow_enabled = !yellow_enabled;
-                cmd.enabled = yellow_enabled;
-                xQueueOverwrite(xQueueLedYellowCmd, &cmd);
+            if (button_id == BUTTON_YELLOW) {
+                xSemaphoreGive(xSemaphoreLedY);
             }
         }
     }
 }
 
 void led_red_task(void* p) {
+    (void) p;
+
     gpio_init(LED_PIN_R);
     gpio_set_dir(LED_PIN_R, GPIO_OUT);
     gpio_put(LED_PIN_R, 0);
 
     bool enabled = false;
     bool led_state = false;
-    led_cmd_t cmd;
 
     while (true) {
         if (!enabled) {
             gpio_put(LED_PIN_R, 0);
             led_state = false;
-            if (xQueueReceive(xQueueLedRedCmd, &cmd, portMAX_DELAY) == pdTRUE) {
-                enabled = cmd.enabled;
+
+            if (xSemaphoreTake(xSemaphoreLedR, portMAX_DELAY) == pdTRUE) {
+                enabled = !enabled;
             }
+
             continue;
         }
 
-        if (xQueueReceive(xQueueLedRedCmd, &cmd, pdMS_TO_TICKS(100)) == pdTRUE) {
-            enabled = cmd.enabled;
+        if (xSemaphoreTake(xSemaphoreLedR, pdMS_TO_TICKS(100)) == pdTRUE) {
+            enabled = !enabled;
             if (!enabled) {
                 gpio_put(LED_PIN_R, 0);
                 led_state = false;
                 continue;
             }
+            continue;
         }
 
         led_state = !led_state;
@@ -124,31 +113,35 @@ void led_red_task(void* p) {
 }
 
 void led_yellow_task(void* p) {
+    (void) p;
+
     gpio_init(LED_PIN_Y);
     gpio_set_dir(LED_PIN_Y, GPIO_OUT);
     gpio_put(LED_PIN_Y, 0);
 
     bool enabled = false;
     bool led_state = false;
-    led_cmd_t cmd;
 
     while (true) {
         if (!enabled) {
             gpio_put(LED_PIN_Y, 0);
             led_state = false;
-            if (xQueueReceive(xQueueLedYellowCmd, &cmd, portMAX_DELAY) == pdTRUE) {
-                enabled = cmd.enabled;
+
+            if (xSemaphoreTake(xSemaphoreLedY, portMAX_DELAY) == pdTRUE) {
+                enabled = !enabled;
             }
+
             continue;
         }
 
-        if (xQueueReceive(xQueueLedYellowCmd, &cmd, pdMS_TO_TICKS(100)) == pdTRUE) {
-            enabled = cmd.enabled;
+        if (xSemaphoreTake(xSemaphoreLedY, pdMS_TO_TICKS(100)) == pdTRUE) {
+            enabled = !enabled;
             if (!enabled) {
                 gpio_put(LED_PIN_Y, 0);
                 led_state = false;
                 continue;
             }
+            continue;
         }
 
         led_state = !led_state;
@@ -161,9 +154,9 @@ void led_yellow_task(void* p) {
 int main() {
     stdio_init_all();
 
-    xQueueButtonEvents = xQueueCreate(8, sizeof(button_event_t));
-    xQueueLedRedCmd = xQueueCreate(1, sizeof(led_cmd_t));
-    xQueueLedYellowCmd = xQueueCreate(1, sizeof(led_cmd_t));
+    xQueueBtn = xQueueCreate(8, sizeof(uint8_t));
+    xSemaphoreLedR = xSemaphoreCreateBinary();
+    xSemaphoreLedY = xSemaphoreCreateBinary();
 
     xTaskCreate(button_task, "BTN_Task", 256, NULL, 2, NULL);
     xTaskCreate(led_red_task, "LED_R_Task", 256, NULL, 1, NULL);
