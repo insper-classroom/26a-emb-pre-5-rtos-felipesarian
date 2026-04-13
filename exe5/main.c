@@ -98,12 +98,9 @@ void led_red_task(void* p) {
         }
 
         if (xSemaphoreTake(xSemaphoreLedR, pdMS_TO_TICKS(100)) == pdTRUE) {
-            enabled = !enabled;
-            if (!enabled) {
-                gpio_put(LED_PIN_R, 0);
-                led_state = false;
-                continue;
-            }
+            enabled = false;
+            gpio_put(LED_PIN_R, 0);
+            led_state = false;
             continue;
         }
 
@@ -135,12 +132,9 @@ void led_yellow_task(void* p) {
         }
 
         if (xSemaphoreTake(xSemaphoreLedY, pdMS_TO_TICKS(100)) == pdTRUE) {
-            enabled = !enabled;
-            if (!enabled) {
-                gpio_put(LED_PIN_Y, 0);
-                led_state = false;
-                continue;
-            }
+            enabled = false;
+            gpio_put(LED_PIN_Y, 0);
+            led_state = false;
             continue;
         }
 
